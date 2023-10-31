@@ -15,10 +15,12 @@ bool ffs_init(void);
 int file_size(const char *name);
 bool start_page(void);
 bool main_page(void);
+static void temp_callback(void *arg);
 
 uint8_t backlight_value = 20;
 
 #include "panel.cpp"
+#include "dht11.h"
 #include "calibrate.h"
 
 extern "C" void app_main()
@@ -39,6 +41,7 @@ extern "C" void app_main()
     lcd.endWrite();
 
     if (Reset_Mean==1)  start_page();
+    DHT11_init(GPIO_NUM_1);
 
     //-----------LVGL INIT -------------------------
     lv_init();
@@ -79,8 +82,16 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, LV_TICK_PERIOD_MS * 1000));
 
-    //main_page();
-    touchscreen_cal_create();
+    esp_timer_create_args_t arg = {};
+    arg.callback = &temp_callback;
+    periodic_timer_args.name = "periodic_temp";
+    esp_timer_handle_t temp_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&arg, &temp_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(temp_timer, 10000 * 1000));
+
+    main_page();
+   // touchscreen_cal_create();
+
 
     while(true)
     {
@@ -206,10 +217,55 @@ static void set_value(void * indic, int32_t v)
     lv_meter_set_indicator_value(meter, (lv_meter_indicator_t *)indic, v);
 }
 
-char *a0, *a1, *a2;
-uint8_t min = 15, max=56, set = 30;
-lv_meter_indicator_t *indic, *indic1, *indic2;
-lv_obj_t *lab0;
+char *a0, *a1, *a2, *a3, *a4;
+uint8_t min = 15, max=56, set = 27, temp = min;
+bool autoflag = true;
+lv_meter_indicator_t *indic, *indic1, *indic2, *indic3;
+lv_obj_t *lab0, *lab1, *lab2, *lab3, *img_alev, *auto_btn, *grp1, *grp2, *sw, *swlab;
+
+static bool Role_Durumu=false;
+
+static void temp_rate(bool state)
+{
+    bool relay_stat;
+    if (autoflag) {
+        if (set>temp) relay_stat=true; else relay_stat=false; 
+    } else {
+        if (state) relay_stat=true; else relay_stat=false; 
+    }
+
+    if (Role_Durumu!=relay_stat) {
+        Role_Durumu = relay_stat;
+        //Role_Durumunu CPU2 ye gonder
+        if (relay_stat )
+        {
+                lv_obj_clear_flag(img_alev, LV_OBJ_FLAG_HIDDEN);  
+                printf("ROLE AKTIF\n");
+            } else {
+                lv_obj_add_flag(img_alev, LV_OBJ_FLAG_HIDDEN);
+                printf("ROLE PASIF\n");
+            }
+        lv_event_send(img_alev, LV_EVENT_REFRESH , NULL);  
+    }
+}
+
+static void temp_callback(void *arg)
+{
+    struct dht11_reading aa = DHT11_read();
+    int tmp = (aa.temperature * 0.55) + 3;
+    int hum = aa.humidity;
+   // int sta = aa.status;
+    temp=tmp;
+    set_value(indic1,tmp);
+    char *mm = (char*)malloc(5);
+    sprintf(mm,"%d",tmp);
+    lv_label_set_text(lab2,mm);
+    free(mm);
+    
+    printf("%3d %3d\n",tmp,hum);
+    if (autoflag) temp_rate(true);
+
+}
 
 static void event_handler(lv_event_t * e)
 {
@@ -222,6 +278,44 @@ static void event_handler(lv_event_t * e)
     
     */
     //lv_label_set_text_fmt(label, "%"LV_PRIu32, cnt);
+    if(strcmp(aa,"4")==0 && code == LV_EVENT_VALUE_CHANGED) {
+         printf("Event %d %s\n",code, aa);
+         lv_obj_t * btn = lv_event_get_target(e);
+         lv_state_t bb = lv_obj_get_state(btn);
+         if (bb & LV_STATE_CHECKED)
+          {
+            printf("AUTO\n");
+            lv_obj_add_flag(grp1, LV_OBJ_FLAG_HIDDEN);
+            autoflag = false;
+            lv_obj_add_state(sw, LV_STATE_CHECKED);
+            temp_callback(NULL);
+            lv_obj_clear_flag(grp2, LV_OBJ_FLAG_HIDDEN);
+          } else {
+            printf("MANUAL\n");
+            lv_obj_add_flag(grp2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(grp1, LV_OBJ_FLAG_HIDDEN);
+            temp_callback(NULL);
+            autoflag = true;
+          }
+         printf("State = %d\n", bb);
+    }
+
+    if(strcmp(aa,"5")==0 && code == LV_EVENT_VALUE_CHANGED) {
+         printf("Event %d %s\n",code, aa);
+         lv_obj_t * btn = lv_event_get_target(e);
+         lv_state_t bb = lv_obj_get_state(btn);
+         if (bb & LV_STATE_CHECKED)
+          {
+            printf("acık\n");
+            temp_rate(true);
+            lv_label_set_text(swlab,"OPEN");
+          } else {
+            printf("kapalı\n");
+            temp_rate(false);
+            lv_label_set_text(swlab,"CLOSE");
+          }
+         printf("State = %d\n", bb);
+    }
 
     if(strcmp(aa,"1")==0 && code == LV_EVENT_CLICKED) {
         //free(a0);
@@ -234,32 +328,34 @@ static void event_handler(lv_event_t * e)
         if (set+1<max)
         {
             set+=1;
-            lv_meter_set_indicator_start_value(meter, indic, set);
+            lv_meter_set_indicator_start_value(meter, indic2, set);
             char *mm = (char*)malloc(5);
             sprintf(mm,"%d",set);
             lv_label_set_text(lab0,mm);
+            temp_rate(true);
             lv_event_send(meter, LV_EVENT_REFRESH , NULL);
             free(mm);
         }
         
         //free(a1);
-        printf("UP \n");
+        //printf("UP \n");
         //free(a1);
         //lv_obj_clean(lv_scr_act());
         //setup_page();
     }
     if(strcmp(aa,"3")==0 && code == LV_EVENT_CLICKED) {
-        if (set-1>min+10)
+        if (set-1>min)
         {
             set-=1;
-            lv_meter_set_indicator_start_value(meter, indic, set);
+            lv_meter_set_indicator_start_value(meter, indic2, set);
             char *mm = (char*)malloc(5);
             sprintf(mm,"%d",set);
             lv_label_set_text(lab0,mm);
             free(mm);
+            temp_rate(true);
             lv_event_send(meter, LV_EVENT_REFRESH , NULL);
         }
-        printf("DOWN \n");
+        //printf("DOWN \n");
         //free(a1);
         //lv_obj_clean(lv_scr_act());
         //setup_page();
@@ -269,6 +365,10 @@ static void event_handler(lv_event_t * e)
 
 LV_IMG_DECLARE(up);
 LV_IMG_DECLARE(down);
+LV_IMG_DECLARE(alev);
+LV_IMG_DECLARE(auto_img1);
+LV_IMG_DECLARE(smart_img1);
+LV_FONT_DECLARE(dejavu_56);
 
 bool main_page(void)
 {
@@ -284,39 +384,57 @@ bool main_page(void)
     lv_meter_set_scale_major_ticks(meter, scale, 10, 4, 15, lv_color_black(), 10);
 
     /*Add a red arc to the end*/
-    indic2 = lv_meter_add_arc(meter, scale, 8, lv_palette_main(LV_PALETTE_RED), 0);
+    indic2 = lv_meter_add_arc(meter, scale, 6, lv_palette_main(LV_PALETTE_RED), 0);
     lv_meter_set_indicator_start_value(meter, indic2, set);
     lv_meter_set_indicator_end_value(meter, indic2, max);
 
-    /*Make the tick lines red at the end of the scale*/
-    indic = lv_meter_add_scale_lines(meter, scale, lv_palette_main(LV_PALETTE_RED), lv_palette_main(LV_PALETTE_RED), true,
-                                     0);
-    lv_meter_set_indicator_start_value(meter, indic, set);
-    lv_meter_set_indicator_end_value(meter, indic, max);
-
-    /*Add a needle line indicator*/
     indic1 = lv_meter_add_needle_line(meter, scale, 4, lv_palette_main(LV_PALETTE_GREY), 10);
 
-    //indic1 = lv_meter_add_arc(meter, scale, 10, lv_palette_main(LV_PALETTE_RED), 0);
+    grp1 = lv_obj_create(meter);
+    //lv_obj_set_style_bg_color(grp1,LV_COLOR_MAKE(0x00, 0xff, 0x00),LV_STATE_DEFAULT);
+    lv_obj_remove_style_all(grp1);
+    lv_obj_set_style_bg_opa(grp1, LV_OPA_TRANSP, LV_STATE_DEFAULT); 
+    lv_obj_set_size(grp1, 160,60);  
+    lv_obj_align(grp1, LV_ALIGN_CENTER, 0, -50);
 
-    lab0 = lv_label_create(meter);
+    grp2 = lv_obj_create(meter);
+    lv_obj_remove_style_all(grp2);
+    lv_obj_set_size(grp2, 160,60);  
+    lv_obj_align(grp2, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_add_flag(grp2, LV_OBJ_FLAG_HIDDEN);
+
+    sw = lv_switch_create(grp2);
+    lv_obj_add_state(sw, LV_STATE_CHECKED);
+    a4 = (char *)malloc(5);
+    strcpy(a4,"5");
+    lv_obj_add_event_cb(sw, event_handler, LV_EVENT_VALUE_CHANGED, a4);
+    lv_obj_align(sw, LV_ALIGN_CENTER, 0, -0);
+
+    swlab = lv_label_create(grp2);
+    lv_obj_set_style_text_font(swlab, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(swlab, LV_COLOR_MAKE(0x00, 0x00, 0xff), LV_STATE_DEFAULT);
+    lv_obj_align_to(swlab, sw, LV_ALIGN_OUT_TOP_MID, -8, 0);
+    lv_label_set_text(swlab,"OPEN");
+
+ 
+ //----------  
+    lab0 = lv_label_create(grp1);
     lv_obj_set_style_text_font(lab0, &lv_font_montserrat_30, LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(lab0,LV_COLOR_MAKE(0xff, 0x00, 0x00),  LV_STATE_DEFAULT);
-    //lv_obj_set_pos(lab, 20, 20);
-    lv_obj_align(lab0, LV_ALIGN_CENTER, -20, -40);
+    lv_obj_align(lab0, LV_ALIGN_CENTER, 0, 5);
     char *mm = (char*)malloc(5);
     sprintf(mm,"%d",set);
     lv_label_set_text(lab0,mm);
     free(mm);
 
-    lv_obj_t *lab1 = lv_label_create(meter);
+    lv_obj_t *lab1 = lv_label_create(grp1);
     lv_obj_set_style_text_font(lab1, &lv_font_montserrat_16, LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(lab1, LV_COLOR_MAKE(0xff, 0x00, 0x00), LV_STATE_DEFAULT);
     lv_obj_align_to(lab1, lab0, LV_ALIGN_OUT_TOP_MID, 0, 0);
     lv_label_set_text(lab1,"SET");
 
     
-    lv_obj_t * img2 = lv_img_create(meter);
+    lv_obj_t * img2 = lv_img_create(grp1);
     lv_img_set_src(img2, &up);
     lv_obj_set_size(img2, 32,32);
     lv_obj_set_style_img_opa(img2,50, LV_STATE_DEFAULT);
@@ -327,8 +445,7 @@ bool main_page(void)
     lv_obj_add_flag(img2, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(img2, event_handler, LV_EVENT_CLICKED, a1);
   
-
-    lv_obj_t * img3 = lv_img_create(meter);
+    lv_obj_t * img3 = lv_img_create(grp1);
     lv_img_set_src(img3, &down);
     lv_obj_set_size(img3, 32,32);
     lv_obj_set_style_img_opa(img3,50, LV_STATE_DEFAULT);
@@ -337,18 +454,46 @@ bool main_page(void)
     a2 = (char *)malloc(5);
     strcpy(a2,"3");
     lv_obj_add_event_cb(img3, event_handler, LV_EVENT_CLICKED, a2);
+//-----------------------------
 
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_exec_cb(&a, set_value);
-    lv_anim_set_var(&a, indic);
-    lv_anim_set_values(&a, 0, 100);
-    lv_anim_set_time(&a, 5000);
-    lv_anim_set_repeat_delay(&a, 100);
-    lv_anim_set_playback_time(&a, 500);
-    lv_anim_set_playback_delay(&a, 100);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    //lv_anim_start(&a);
+    lab2 = lv_label_create(meter);
+    lv_obj_set_style_text_font(lab2, &dejavu_56, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(lab2,LV_COLOR_MAKE(0x00, 0x00, 0xff),  LV_STATE_DEFAULT);
+    lv_obj_align(lab2, LV_ALIGN_BOTTOM_MID, 0, -20);
+    mm = (char*)malloc(5);
+    sprintf(mm,"%d",temp);
+    lv_label_set_text(lab2,mm);
+    free(mm);
+
+    lab3 = lv_label_create(meter);
+    lv_obj_set_style_text_font(lab3, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(lab3, LV_COLOR_MAKE(0x00, 0x00, 0xff), LV_STATE_DEFAULT);
+    lv_obj_align_to(lab3, lab2, LV_ALIGN_OUT_TOP_MID, -10, 0);
+    lv_label_set_text(lab3,"TEMP");
+
+    img_alev = lv_img_create(meter);
+    lv_img_set_src(img_alev, &alev);
+    lv_obj_set_size(img_alev, 32,32);
+    //lv_obj_set_style_img_opa(img_alev,50, LV_STATE_DEFAULT);
+    lv_obj_align(img_alev, LV_ALIGN_CENTER, 0, 0);
+    //lv_obj_add_flag(img_alev, LV_OBJ_FLAG_HIDDEN);
+    //lv_obj_clear_flag(img_alev, LV_OBJ_FLAG_HIDDEN);
+    temp_rate(false);
+
+    auto_btn = lv_imgbtn_create(meter);
+    lv_obj_set_size(auto_btn, 48,48);
+    lv_imgbtn_set_src(auto_btn, LV_IMGBTN_STATE_RELEASED, NULL,&auto_img1,NULL);
+    lv_imgbtn_set_src(auto_btn, LV_IMGBTN_STATE_CHECKED_PRESSED, NULL, &auto_img1, NULL);
+    lv_imgbtn_set_src(auto_btn, LV_IMGBTN_STATE_CHECKED_PRESSED, NULL, &smart_img1, NULL);
+    lv_imgbtn_set_src(auto_btn, LV_IMGBTN_STATE_CHECKED_RELEASED, NULL, &smart_img1, NULL);
+    lv_obj_add_flag(auto_btn, LV_OBJ_FLAG_CHECKABLE);
+    a3 = (char *)malloc(5);
+    strcpy(a3,"4");
+    lv_obj_add_event_cb(auto_btn, event_handler, LV_EVENT_VALUE_CHANGED, a3);
+    lv_obj_align(auto_btn, LV_ALIGN_RIGHT_MID, -20, 30);
+
+    
+
 
     lv_obj_t * label;
     lv_obj_t * setup_btn = lv_btn_create(lv_scr_act());   
@@ -359,6 +504,9 @@ bool main_page(void)
     lv_obj_add_event_cb(setup_btn, event_handler, LV_EVENT_CLICKED, a0);
     label = lv_label_create(setup_btn);
     lv_label_set_text(label, LV_SYMBOL_SETTINGS " Setup");
+
+    autoflag = true;
+    temp_callback(NULL);
   
     return true; 
 }

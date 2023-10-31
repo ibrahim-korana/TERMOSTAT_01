@@ -28,6 +28,7 @@ COMPONENT_SRCDIRS := . \
                   src/extra/widgets/spinner \
                   src/extra/widgets/tabview \
                   src/extra/widgets/tileview \
+                  src/extra/widgets/icebtn \
                   src/extra/widgets/win
 
 

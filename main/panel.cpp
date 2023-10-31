@@ -132,7 +132,7 @@ public:
       cfg.pin_int    = GPIO_NUM_6;
       cfg.pin_rst    = GPIO_NUM_NC;
       
-      cfg.freq       = 10000;
+      cfg.freq       = 100000;
       _touch_instance.config(cfg);
       _panel_instance.setTouch(&_touch_instance);
     }
@@ -189,7 +189,7 @@ void lvgl_touchpad_read( lv_indev_drv_t * indev_driver, lv_indev_data_t * data )
             data->state = LV_INDEV_STATE_PR;  
             data->point.x = touchX;
             data->point.y = touchY;
-           //printf( "Satir %d Colon %d\n", touchX, touchY );        
+            //printf( "Satir %d Colon %d\n", touchX, touchY );        
         }
     //return false;
 }

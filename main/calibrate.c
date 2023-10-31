@@ -180,6 +180,7 @@ static void btn_click_action(lv_event_t* event)
 
     if (current_x != anim_x || current_y != anim_y)
     {
+        
         printf("Animating from %d, %d to %d, %d\n", current_x, current_y, anim_x, anim_y);
 
         lv_anim_t   a;
@@ -189,13 +190,14 @@ static void btn_click_action(lv_event_t* event)
         lv_anim_set_exec_cb(&a, set_x_cb);
         lv_anim_set_delay(&a, 500);
         lv_anim_set_time(&a, 200);
-        lv_anim_start(&a);
+        //lv_anim_start(&a);
 
         lv_anim_set_values(&a, current_y, anim_y);
         lv_anim_set_exec_cb(&a, set_y_cb);
         lv_anim_set_time(&a, 200);
-        lv_anim_start(&a);
-        lv_obj_move_foreground(target);
+        //lv_anim_start(&a);
+        //lv_obj_move_foreground(target);
+        
     }
     else
         lv_obj_add_flag(target, LV_OBJ_FLAG_HIDDEN);  // Hide the target, it's not needed any more.
